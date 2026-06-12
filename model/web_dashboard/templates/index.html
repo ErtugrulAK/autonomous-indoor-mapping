@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Robot Dashboard | Autonomous Vision</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="dashboard">
+        <header>
+            <div class="logo">
+                <h1>ROBOT_OS v1.0</h1>
+            </div>
+            <div class="system-status">
+                <div class="status-item">
+                    <div class="dot active"></div>
+                    <span>CAMERA: ONLINE</span>
+                </div>
+                <div class="status-item">
+                    <div class="dot active"></div>
+                    <span>YOLO: RUNNING</span>
+                </div>
+                <div class="status-item">
+                    <div class="dot active"></div>
+                    <span>AUDIO: LISTENING</span>
+                </div>
+            </div>
+        </header>
+
+        <aside class="sidebar-left">
+            <div class="panel">
+                <h2 class="panel-title">System Metrics</h2>
+                <div class="metrics">
+                    <div class="metric">
+                        <p>FPS</p>
+                        <h3 id="fps-val">--</h3>
+                    </div>
+                    <div class="metric">
+                        <p>CPU Usage</p>
+                        <h3>14%</h3>
+                    </div>
+                    <div class="metric">
+                        <p>Memory</p>
+                        <h3>240MB</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="panel">
+                <h2 class="panel-title">Active Mission</h2>
+                <p style="font-size: 0.8rem; color: #888;">Object Search & Navigation</p>
+            </div>
+        </aside>
+
+        <main class="main-viewport">
+            <img id="camera-feed" src="{{ url_for('video_feed') }}" alt="Robot Vision Feed">
+            <div id="status-message" class="status-alert">INITIALIZING...</div>
+            <div class="overlay-ui">
+                <div class="scan-line"></div>
+                <div class="corner top-left"></div>
+                <div class="corner top-right"></div>
+                <div class="corner bottom-left"></div>
+                <div class="corner bottom-right"></div>
+            </div>
+        </main>
+
+        <aside class="sidebar-right">
+            <h2 class="panel-title">Detection Log</h2>
+            <ul class="log-list" id="log-list">
+                <!-- Log items will be added here via JS -->
+            </ul>
+        </aside>
+
+        <footer class="bottom-panel">
+            <h2 class="panel-title">Audio Vision (Sound Spectrum)</h2>
+            <div class="visualizer-container">
+                <canvas id="audio-canvas"></canvas>
+            </div>
+        </footer>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>

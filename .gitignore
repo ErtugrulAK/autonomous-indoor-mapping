@@ -1,0 +1,8 @@
+klasör/
+__pycache__/
+*.mp4
+*.avi
+*.zip
+.venv/
+model/.venv/
+model/master_dataset/
