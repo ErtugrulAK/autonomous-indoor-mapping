@@ -3,60 +3,59 @@ from ultralytics import YOLO
 import time
 
 def start_phone_detection():
-    # 1. Modeli Yükle
-    # NOT: Eğitim bitince Colab'dan aldığın 'best.pt' dosyasını bu klasöre koymalısın.
+    # 1. Load Model Weights
     try:
         model = YOLO('best.pt') 
-        print("Eğitilmiş model (best.pt) başarıyla yüklendi.")
+        print("Custom model ('best.pt') loaded successfully.")
     except Exception:
-        print("UYARI: 'best.pt' henüz bulunamadı. Varsayılan 'yolov8n.pt' yükleniyor...")
+        print("WARNING: 'best.pt' not found. Falling back to default 'yolov8n.pt'...")
         model = YOLO('yolov8n.pt')
 
-    # 2. Telefonun IP Kamera Adresi (IP Webcam uygulamasındaki adres)
+    # 2. IP Webcam Stream Endpoint URL
     url = 'http://192.168.1.100:8080/video'
 
-    # 3. Kamerayı Başlat
+    # 3. Connect to IP Camera Stream
     cap = cv2.VideoCapture(url)
 
     if not cap.isOpened():
-        print("HATA: Kamera akışına bağlanılamadı. Wi-Fi ve IP adresini kontrol edin.")
+        print("ERROR: Failed to connect to IP camera stream. Check Wi-Fi connection and IP URL.")
         return
 
-    print(f"Telefon kamerasına bağlandı: {url}")
-    print("Çıkmak için 'q' tuşuna basın.")
+    print(f"Connected to IP camera stream: {url}")
+    print("Press 'q' to quit.")
 
-    # Pencere boyutunu ayarla (Dikey görüntü için 480x640)
-    cv2.namedWindow("Robot Vision - Telefon Kamerasi", cv2.WINDOW_NORMAL)
-    cv2.resizeWindow("Robot Vision - Telefon Kamerasi", 480, 640)
+    # Configure rendering window size (Portrait aspect ratio 480x640)
+    cv2.namedWindow("Robot Vision - IP Camera Stream", cv2.WINDOW_NORMAL)
+    cv2.resizeWindow("Robot Vision - IP Camera Stream", 480, 640)
 
     while True:
         ret, frame = cap.read()
         if not ret:
-            print("Kare alınamadı, yayın kesilmiş olabilir.")
+            print("Failed to grab frame. Stream may have disconnected.")
             break
 
-        # Görüntüyü 90 derece sağa döndür
+        # Rotate frame 90 degrees clockwise for portrait smartphone orientation
         frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
 
-        # Tespit yap
+        # Measure inference latency
         start_time = time.time()
         results = model(frame, conf=0.5, verbose=False)
         end_time = time.time()
 
-        # FPS hesapla
+        # Compute Frames Per Second (FPS)
         fps = 1 / (end_time - start_time)
 
-        # Sonuçları çiz
+        # Plot detection annotations
         annotated_frame = results[0].plot()
         
-        # Ekrana FPS yaz
+        # Render FPS overlay text
         cv2.putText(annotated_frame, f"FPS: {fps:.2f}", (20, 50), 
                     cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
-        # Pencerede göster
-        cv2.imshow("Robot Vision - Telefon Kamerasi", annotated_frame)
+        # Display window
+        cv2.imshow("Robot Vision - IP Camera Stream", annotated_frame)
 
-        # 'q' tuşuna basılırsa çık
+        # Exit key listener
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 

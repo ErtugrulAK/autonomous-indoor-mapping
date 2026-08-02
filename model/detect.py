@@ -2,38 +2,38 @@ import cv2
 from ultralytics import YOLO
 
 def start_detection():
-    # 1. Modeli Yükle
+    # 1. Load Object Detection Model
     try:
         model = YOLO('best.pt') 
-        print("Eğitilmiş model (best.pt) başarıyla yüklendi.")
+        print("Trained model weight file ('best.pt') loaded successfully.")
     except Exception:
-        print("UYARI: 'best.pt' henüz bulunamadı. Varsayılan 'yolov8n.pt' yükleniyor...")
+        print("WARNING: 'best.pt' not found. Loading fallback baseline model ('yolov8n.pt')...")
         model = YOLO('yolov8n.pt')
 
-    # 2. Bilgisayarın Kendi Kamerası (0)
+    # 2. Initialize Default Camera Device (Index 0)
     cap = cv2.VideoCapture(0)
 
     if not cap.isOpened():
-        print("HATA: Bilgisayar kamerası açılamadı.")
+        print("ERROR: Unable to open video capture device 0.")
         return
 
-    print("Yerel kamera başlatıldı. Çıkmak için 'q' tuşuna basın.")
+    print("Local camera initialized. Press 'q' to exit.")
 
     while True:
         ret, frame = cap.read()
         if not ret:
             break
 
-        # Tespit yap
+        # Perform inference with confidence threshold 0.5
         results = model(frame, conf=0.5)
 
-        # Sonuçları çiz
+        # Draw bounding boxes and labels
         annotated_frame = results[0].plot()
 
-        # Pencerede göster
-        cv2.imshow("Robot Gozu - Yerel Kamera", annotated_frame)
+        # Display output stream
+        cv2.imshow("Robot Vision - Local Camera", annotated_frame)
 
-        # 'q' tuşuna basılırsa çık
+        # Terminate stream on 'q' press
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 
@@ -42,5 +42,3 @@ def start_detection():
 
 if __name__ == "__main__":
     start_detection()
-
-

@@ -3,33 +3,33 @@ import os
 
 def export_for_pi():
     """
-    Bu script, bilgisayarında eğittiğin 'best.pt' modelini 
-    Raspberry Pi 3'te en hızlı çalışacak format olan NCNN'e çevirir.
+    Exports a trained PyTorch weights file ('best.pt') to NCNN model format,
+    optimized for lightweight edge deployment on Raspberry Pi systems.
     """
     model_file = 'best.pt'
     
     if not os.path.exists(model_file):
-        print(f"HATA: {model_file} bulunamadı. Lütfen önce modelini bu klasöre kopyala.")
+        print(f"ERROR: Weights file '{model_file}' was not found. Please place 'best.pt' in this directory.")
         return
 
-    print(f"--- {model_file} NCNN formatına dönüştürülüyor... ---")
+    print(f"--- Exporting '{model_file}' to NCNN format... ---")
     
     try:
         model = YOLO(model_file)
         
-        # NCNN formatına dışa aktar
-        # imgsz=320: Pi 3 için ideal hız/doğruluk dengesi
-        # half=True: FP16 hassasiyeti ile daha hızlı çalışma
+        # Export to NCNN format
+        # imgsz=320: Optimal speed/accuracy trade-off for Raspberry Pi 3 hardware
+        # half=True: FP16 precision acceleration
         export_path = model.export(format='ncnn', imgsz=320, half=True)
         
-        print("\n" + "="*30)
-        print("BAŞARILI!")
-        print(f"Pi 3'e kopyalaman gereken klasör: {export_path}")
-        print("Bu klasörü ve 'detect_pi.py' dosyasını Raspberry Pi'ye taşıyabilirsin.")
-        print("="*30)
+        print("\n" + "=" * 40)
+        print("MODEL EXPORT SUCCESSFUL!")
+        print(f"NCNN model export folder: {export_path}")
+        print("Transfer this directory along with 'detect_pi.py' to your Raspberry Pi.")
+        print("=" * 40)
         
     except Exception as e:
-        print(f"Dönüştürme sırasında hata oluştu: {e}")
+        print(f"An error occurred during model export: {e}")
 
 if __name__ == "__main__":
     export_for_pi()
