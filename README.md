@@ -156,16 +156,6 @@ autonomous-indoor-mapping-yolo-slam/
 
 ---
 
-## Screenshots
-
-> *Place project demonstration screenshots and dashboard GIFs here.*
-
-| Live 2D SLAM Simulation | Flask Web Dashboard |
-|---|---|
-| *(SLAM Point Cloud Output)* | *(Real-Time Video Stream & Detection Logs)* |
-
----
-
 ## Future Improvements
 
 - [ ] **ROS2 Integration**: Wrap odometry and sensor data into ROS2 nodes (`nav2` stack compatibility).
