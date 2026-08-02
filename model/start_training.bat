@@ -1,7 +1,7 @@
 @echo off
 echo ========================================================
-echo Model Egitimi Baslatiliyor...
-echo Lutfen bu pencereyi egitim bitene kadar kapatmayin!
+echo Starting Model Training Process...
+echo Please do not close this window until training completes!
 echo ========================================================
 python train.py
 pause

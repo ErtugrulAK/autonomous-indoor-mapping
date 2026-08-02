@@ -1,9 +1,9 @@
 @echo off
 echo ========================================================
-echo NVIDIA Ekran Karti Olan Bilgisayarlar Icin Kurulum
+echo Environment Setup for NVIDIA GPU Systems
 echo ========================================================
-echo Gerekli kutuphaneler (YOLO ve PyTorch GPU) kuruluyor...
-echo Lutfen bekleyin, bu islem internet hiziniza gore birkac dakika surebilir.
+echo Installing required dependencies (YOLO and PyTorch GPU)...
+echo Please wait, this process may take several minutes.
 echo.
 
 pip install ultralytics
@@ -11,7 +11,7 @@ pip install torch torchvision torchaudio --index-url https://download.pytorch.or
 
 echo.
 echo ========================================================
-echo Kurulum basariyla tamamlandi! 
-echo Artik terminale 'python train.py' yazarak egitime baslayabilirsiniz.
+echo Environment setup completed successfully!
+echo You can now execute 'python train.py' to start training.
 echo ========================================================
 pause

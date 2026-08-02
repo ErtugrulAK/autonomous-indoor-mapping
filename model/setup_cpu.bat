@@ -1,17 +1,17 @@
 @echo off
 echo ========================================================
-echo Ekran Karti OLMAYAN (Sadece CPU) Bilgisayarlar Icin Kurulum
+echo Environment Setup for CPU Systems (No GPU)
 echo ========================================================
-echo Gerekli kutuphaneler (YOLO) kuruluyor...
+echo Installing required dependencies (YOLO)...
 echo.
 
 pip install ultralytics
 
 echo.
 echo ========================================================
-echo Kurulum tamamlandi!
+echo Environment setup completed!
 echo.
-echo LUTFEN DIKKAT: Kodun calismasi icin lutfen 'train.py' dosyasini acip
-echo icerisindeki "device='0'" yazan yeri "device='cpu'" olarak degistirin!
+echo NOTE: Please ensure 'device='cpu'' is configured in
+echo 'train.py' before running training on CPU hardware.
 echo ========================================================
 pause
