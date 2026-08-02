@@ -1,8 +1,59 @@
-klasör/
+# Python
 __pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env.bak/
+venv.bak/
+model/.venv/
+
+# Deep Learning / YOLO Output
+runs/
+*.onnx
+*.engine
+master_dataset/
+model/master_dataset/
+
+# Environment Variables & Secrets
+.env
+.env.local
+
+# IDE & Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*.sublime-project
+*.sublime-workspace
+
+# OS Generated
+.DS_Store
+Thumbs.db
+
+# Media & Temporary Files
 *.mp4
 *.avi
 *.zip
-.venv/
-model/.venv/
-model/master_dataset/
+klasör/

@@ -1,0 +1,15 @@
+# Core Machine Learning & Computer Vision
+ultralytics>=8.0.0
+torch>=2.0.0
+torchvision>=0.15.0
+opencv-python>=4.8.0
+
+# Data Processing & Visualization
+numpy>=1.24.0
+matplotlib>=3.7.0
+
+# Web Dashboard
+flask>=2.3.0
+
+# Embedded Hardware Support (Raspberry Pi / Linux)
+# gpiozero>=1.6.2; platform_system == "Linux"
