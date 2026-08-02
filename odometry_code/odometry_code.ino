@@ -1,0 +1,834 @@
+#include <Wire.h>
+
+// =====================================================
+//                      STATUS LED
+// =====================================================
+#define STATUS_LED 13
+
+bool mpuReady = false;
+
+// =====================================================
+//                      MOTOR PINS
+// =====================================================
+#define ENA 6
+#define IN1 8
+#define IN2 7
+
+#define ENB 5
+#define IN3 9
+#define IN4 10
+
+// =====================================================
+//                     ENCODER PINS
+// =====================================================
+#define LEFT_ENC 3
+#define RIGHT_ENC 2
+
+volatile long leftTicks = 0;
+volatile long rightTicks = 0;
+
+long lastLeftTicks = 0;
+long lastRightTicks = 0;
+
+// =====================================================
+//                       MPU RAW
+// =====================================================
+#define MPU_ADDR 0x68
+#define MPU_PWR_MGMT_1 0x6B
+#define MPU_GYRO_CONFIG 0x1B
+#define MPU_CONFIG 0x1A
+#define MPU_GYRO_ZOUT_H 0x47
+#define MPU_WHO_AM_I 0x75
+
+float yawAngle = 0.0;
+float targetYaw = 0.0;
+float gyroZOffset = 0.0;
+
+unsigned long lastIMUTime = 0;
+
+// Set to -1 if yaw direction reverses when robot is manually turned clockwise
+int IMU_YAW_SIGN = 1;
+
+// =====================================================
+//                  ROBOT GEOMETRY
+// =====================================================
+float wheelDiameterMM = 65.0;
+
+// 20-slot encoder disk + CHANGE interrupt.
+// 20 slots with CHANGE interrupt typically yield 40 ticks/rev.
+float ticksPerWheelRev = 40.0;
+
+// =====================================================
+//                    ODOMETRY
+// =====================================================
+float robotX = 0.0;
+float robotY = 0.0;
+float robotTheta = 0.0;
+
+float linearVelocityMMs = 0.0;
+float angularVelocityDegS = 0.0;
+
+// =====================================================
+//                 MOTOR DIRECTION SETTINGS
+// =====================================================
+// Set value to -1 if motor rotates in reverse on forward command
+int LEFT_DIR = 1;
+int RIGHT_DIR = 1;
+
+// =====================================================
+//                    PWM SETTINGS
+// =====================================================
+int minPWM = 80;
+int maxPWM = 88;
+
+int leftPWM = 0;
+int rightPWM = 0;
+
+int maxPWMChangePerCycle = 8;
+
+// =====================================================
+//               ENCODER SPEED CONTROL
+// =====================================================
+float targetLeftTicksPerSec = 0.0;
+float targetRightTicksPerSec = 0.0;
+
+float leftSpeedTicksPerSec = 0.0;
+float rightSpeedTicksPerSec = 0.0;
+
+float KpSpeed = 1.5;
+float KiSpeed = 0.10;
+
+float leftSpeedIntegral = 0.0;
+float rightSpeedIntegral = 0.0;
+
+float speedIntegralLimit = 250.0;
+
+// =====================================================
+//                  IMU HEADING CONTROL
+// =====================================================
+float KpHeading = 0.4;
+float maxHeadingCorrection = 25.0;
+
+float baseTicksPerSec = 70.0;
+float turnTicksPerSec = 100.0;
+
+float turnToleranceDeg = 2.0;
+
+// =====================================================
+//                     CONTROL TIME
+// =====================================================
+unsigned long lastControlTime = 0;
+unsigned long lastPrintTime = 0;
+
+const unsigned long controlInterval = 100;
+
+// =====================================================
+//                  AUTO DRIVE TEST
+// =====================================================
+unsigned long autoDriveStartTime = 0;
+bool autoDriveActive = false;
+
+// Initial battery drive test duration (20 seconds)
+const unsigned long autoDriveDuration = 20000;
+
+// =====================================================
+//                    MOTION MODE
+// =====================================================
+enum MotionMode { STOPPED, DRIVE_STRAIGHT, TURN_TO_ANGLE };
+
+MotionMode motionMode = STOPPED;
+
+// =====================================================
+//                    ENCODER ISR
+// =====================================================
+void leftEncoderISR() { leftTicks++; }
+
+void rightEncoderISR() { rightTicks++; }
+
+// =====================================================
+//                    LED HELPERS
+// =====================================================
+void blinkStatusLED(int times, int delayMs) {
+  for (int i = 0; i < times; i++) {
+    digitalWrite(STATUS_LED, HIGH);
+    delay(delayMs);
+    digitalWrite(STATUS_LED, LOW);
+    delay(delayMs);
+  }
+}
+
+void showFatalErrorLED() {
+  stopMotors();
+
+  while (1) {
+    digitalWrite(STATUS_LED, HIGH);
+    delay(100);
+    digitalWrite(STATUS_LED, LOW);
+    delay(100);
+  }
+}
+
+// =====================================================
+//                    ANGLE HELPERS
+// =====================================================
+float normalizeAngle(float angle) {
+  while (angle > 180.0)
+    angle -= 360.0;
+  while (angle < -180.0)
+    angle += 360.0;
+  return angle;
+}
+
+float angleError(float target, float current) {
+  return normalizeAngle(target - current);
+}
+
+// =====================================================
+//                    MPU RAW HELPERS
+// =====================================================
+void writeMPURegister(byte reg, byte value) {
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.write(reg);
+  Wire.write(value);
+  Wire.endTransmission();
+}
+
+byte readMPURegister(byte reg) {
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.write(reg);
+
+  byte error = Wire.endTransmission(false);
+
+  if (error != 0) {
+    Serial.print("I2C endTransmission error: ");
+    Serial.println(error);
+    return 0xFF;
+  }
+
+  byte count = Wire.requestFrom(MPU_ADDR, 1);
+
+  if (count == 1 && Wire.available()) {
+    return Wire.read();
+  }
+
+  Serial.println("I2C requestFrom did not respond.");
+  return 0xFF;
+}
+
+int16_t readMPUWord(byte reg) {
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.write(reg);
+
+  byte error = Wire.endTransmission(false);
+
+  if (error != 0) {
+    return 0;
+  }
+
+  byte count = Wire.requestFrom(MPU_ADDR, 2);
+
+  if (count == 2 && Wire.available() >= 2) {
+    int16_t value = Wire.read() << 8 | Wire.read();
+    return value;
+  }
+
+  return 0;
+}
+
+int16_t readGyroZRaw() { return readMPUWord(MPU_GYRO_ZOUT_H); }
+
+bool testMPUConnection() {
+  byte whoami = readMPURegister(MPU_WHO_AM_I);
+
+  Serial.print("MPU WHO_AM_I: 0x");
+  Serial.println(whoami, HEX);
+
+  if (whoami == 0xFF) {
+    Serial.println("Failed to read MPU register.");
+    return false;
+  }
+
+  int16_t gyro1 = readGyroZRaw();
+  delay(20);
+  int16_t gyro2 = readGyroZRaw();
+
+  Serial.print("GyroZ test 1: ");
+  Serial.println(gyro1);
+
+  Serial.print("GyroZ test 2: ");
+  Serial.println(gyro2);
+
+  return true;
+}
+
+void setupMPU6050Raw() {
+  Wire.begin();
+  Wire.setClock(100000);
+  Wire.setWireTimeout(3000, true);
+
+  delay(100);
+
+  Serial.println("Testing MPU connection...");
+
+  if (!testMPUConnection()) {
+    Serial.println("MPU connection test FAILED.");
+    mpuReady = false;
+    return;
+  }
+
+  // Wake up from sleep mode
+  writeMPURegister(MPU_PWR_MGMT_1, 0x00);
+  delay(100);
+
+  // Low-pass filter configuration
+  writeMPURegister(MPU_CONFIG, 0x05);
+  delay(10);
+
+  // Gyro scale range +-500 deg/s (FS_SEL = 1 -> 0x08)
+  writeMPURegister(MPU_GYRO_CONFIG, 0x08);
+  delay(10);
+
+  int16_t gyroZ = readGyroZRaw();
+
+  Serial.print("MPU final GyroZ test: ");
+  Serial.println(gyroZ);
+
+  mpuReady = true;
+
+  Serial.println("MPU raw register mode initialized.");
+}
+
+// =====================================================
+//                    MOTOR RAW CONTROL
+// =====================================================
+void setLeftMotorRaw(int pwm) {
+  pwm = constrain(pwm, -255, 255);
+
+  if (pwm > 0) {
+    digitalWrite(IN1, HIGH);
+    digitalWrite(IN2, LOW);
+    analogWrite(ENA, pwm);
+  } else if (pwm < 0) {
+    digitalWrite(IN1, LOW);
+    digitalWrite(IN2, HIGH);
+    analogWrite(ENA, -pwm);
+  } else {
+    digitalWrite(IN1, LOW);
+    digitalWrite(IN2, LOW);
+    analogWrite(ENA, 0);
+  }
+}
+
+void setRightMotorRaw(int pwm) {
+  pwm = constrain(pwm, -255, 255);
+
+  if (pwm > 0) {
+    digitalWrite(IN3, HIGH);
+    digitalWrite(IN4, LOW);
+    analogWrite(ENB, pwm);
+  } else if (pwm < 0) {
+    digitalWrite(IN3, LOW);
+    digitalWrite(IN4, HIGH);
+    analogWrite(ENB, -pwm);
+  } else {
+    digitalWrite(IN3, LOW);
+    digitalWrite(IN4, LOW);
+    analogWrite(ENB, 0);
+  }
+}
+
+void setLeftMotor(int pwm) { setLeftMotorRaw(pwm * LEFT_DIR); }
+
+void setRightMotor(int pwm) { setRightMotorRaw(pwm * RIGHT_DIR); }
+
+int smoothPWM(int currentPWM, int targetPWM) {
+  if (targetPWM > currentPWM + maxPWMChangePerCycle) {
+    return currentPWM + maxPWMChangePerCycle;
+  }
+
+  if (targetPWM < currentPWM - maxPWMChangePerCycle) {
+    return currentPWM - maxPWMChangePerCycle;
+  }
+
+  return targetPWM;
+}
+
+void stopMotors() {
+  motionMode = STOPPED;
+
+  targetLeftTicksPerSec = 0.0;
+  targetRightTicksPerSec = 0.0;
+
+  leftSpeedIntegral = 0.0;
+  rightSpeedIntegral = 0.0;
+
+  leftPWM = 0;
+  rightPWM = 0;
+
+  setLeftMotor(0);
+  setRightMotor(0);
+}
+
+// =====================================================
+//                    GYRO CALIBRATION
+// =====================================================
+void calibrateGyroZ() {
+  Serial.println("Gyro Z calibration started.");
+  Serial.println("Keep robot stationary.");
+
+  long sum = 0;
+  const int samples = 1000;
+
+  for (int i = 0; i < samples; i++) {
+    int16_t gyroZRaw = readGyroZRaw();
+    sum += gyroZRaw;
+    delay(3);
+  }
+
+  gyroZOffset = sum / (float)samples;
+
+  Serial.print("gyroZOffset raw: ");
+  Serial.println(gyroZOffset, 3);
+}
+
+// =====================================================
+//                    IMU UPDATE
+// =====================================================
+void updateIMU() {
+  if (!mpuReady)
+    return;
+
+  unsigned long now = millis();
+  float dt = (now - lastIMUTime) / 1000.0;
+
+  if (dt < 0.005)
+    return;
+
+  lastIMUTime = now;
+
+  int16_t gyroZRaw = readGyroZRaw();
+
+  // Gyro scale +-500 deg/s. Sensitivity: 65.5 LSB / (deg/s)
+  float gyroZDegPerSec = (gyroZRaw - gyroZOffset) / 65.5;
+
+  angularVelocityDegS = IMU_YAW_SIGN * gyroZDegPerSec;
+
+  yawAngle += angularVelocityDegS * dt;
+  yawAngle = normalizeAngle(yawAngle);
+
+  robotTheta = yawAngle;
+}
+
+// =====================================================
+//                    RESET
+// =====================================================
+void resetEncodersAndOdometry() {
+  noInterrupts();
+  leftTicks = 0;
+  rightTicks = 0;
+  interrupts();
+
+  lastLeftTicks = 0;
+  lastRightTicks = 0;
+
+  leftSpeedTicksPerSec = 0.0;
+  rightSpeedTicksPerSec = 0.0;
+
+  leftSpeedIntegral = 0.0;
+  rightSpeedIntegral = 0.0;
+
+  robotX = 0.0;
+  robotY = 0.0;
+  robotTheta = 0.0;
+
+  yawAngle = 0.0;
+  targetYaw = 0.0;
+
+  linearVelocityMMs = 0.0;
+  angularVelocityDegS = 0.0;
+
+  lastIMUTime = millis();
+}
+
+// =====================================================
+//                    ODOMETRY
+// =====================================================
+void updateOdometry(long deltaLeftTicks, long deltaRightTicks, float dt) {
+  float wheelCircumferenceMM = 3.14159 * wheelDiameterMM;
+
+  float leftDistMM = (deltaLeftTicks / ticksPerWheelRev) * wheelCircumferenceMM;
+  float rightDistMM =
+      (deltaRightTicks / ticksPerWheelRev) * wheelCircumferenceMM;
+
+  float centerDistMM = (leftDistMM + rightDistMM) / 2.0;
+
+  if (dt > 0.0) {
+    linearVelocityMMs = centerDistMM / dt;
+  } else {
+    linearVelocityMMs = 0.0;
+  }
+
+  float thetaRad = robotTheta * 3.14159 / 180.0;
+
+  robotX += centerDistMM * cos(thetaRad);
+  robotY += centerDistMM * sin(thetaRad);
+}
+
+// =====================================================
+//                ENCODER SPEED UPDATE
+// =====================================================
+void updateEncoderSpeeds(float dt) {
+  long currentLeftTicks;
+  long currentRightTicks;
+
+  noInterrupts();
+  currentLeftTicks = leftTicks;
+  currentRightTicks = rightTicks;
+  interrupts();
+
+  long rawDeltaLeft = currentLeftTicks - lastLeftTicks;
+  long rawDeltaRight = currentRightTicks - lastRightTicks;
+
+  lastLeftTicks = currentLeftTicks;
+  lastRightTicks = currentRightTicks;
+
+  // Single-channel speed encoder does not detect direction.
+  // Direction is estimated from target motor command.
+  int leftMotionSign = targetLeftTicksPerSec >= 0 ? 1 : -1;
+  int rightMotionSign = targetRightTicksPerSec >= 0 ? 1 : -1;
+
+  long deltaLeft = rawDeltaLeft * leftMotionSign;
+  long deltaRight = rawDeltaRight * rightMotionSign;
+
+  if (dt > 0.0) {
+    leftSpeedTicksPerSec = deltaLeft / dt;
+    rightSpeedTicksPerSec = deltaRight / dt;
+  } else {
+    leftSpeedTicksPerSec = 0.0;
+    rightSpeedTicksPerSec = 0.0;
+  }
+
+  updateOdometry(deltaLeft, deltaRight, dt);
+}
+
+// =====================================================
+//                 MOTION COMMANDS
+// =====================================================
+void startDriveStraight(float ticksPerSec) {
+  motionMode = DRIVE_STRAIGHT;
+
+  baseTicksPerSec = ticksPerSec;
+  targetYaw = yawAngle;
+
+  leftSpeedIntegral = 0.0;
+  rightSpeedIntegral = 0.0;
+
+  Serial.print("Drive straight initiated. TargetYaw: ");
+  Serial.println(targetYaw);
+}
+
+void startTurnRelative(float angleDeg) {
+  motionMode = TURN_TO_ANGLE;
+
+  targetYaw = normalizeAngle(yawAngle + angleDeg);
+
+  leftSpeedIntegral = 0.0;
+  rightSpeedIntegral = 0.0;
+
+  Serial.print("Turn initiated. TargetYaw: ");
+  Serial.println(targetYaw);
+}
+
+// =====================================================
+//                 HIGH LEVEL MOTION CONTROL
+// =====================================================
+void updateMotionControl() {
+  if (motionMode == STOPPED) {
+    targetLeftTicksPerSec = 0.0;
+    targetRightTicksPerSec = 0.0;
+    return;
+  }
+
+  if (motionMode == DRIVE_STRAIGHT) {
+    float err = angleError(targetYaw, yawAngle);
+
+    float headingCorrection = KpHeading * err;
+
+    headingCorrection = constrain(headingCorrection, -maxHeadingCorrection,
+                                  maxHeadingCorrection);
+
+    targetLeftTicksPerSec = baseTicksPerSec - headingCorrection;
+    targetRightTicksPerSec = baseTicksPerSec + headingCorrection;
+
+    /*
+      If heading correction diverges instead of correcting, swap signs:
+      targetLeftTicksPerSec = baseTicksPerSec + headingCorrection;
+      targetRightTicksPerSec = baseTicksPerSec - headingCorrection;
+    */
+  }
+
+  if (motionMode == TURN_TO_ANGLE) {
+    float err = angleError(targetYaw, yawAngle);
+
+    if (abs(err) <= turnToleranceDeg) {
+      stopMotors();
+      Serial.println("Target heading angle reached.");
+      return;
+    }
+
+    float turnCommand = KpHeading * err;
+    turnCommand = constrain(turnCommand, -turnTicksPerSec, turnTicksPerSec);
+
+    targetLeftTicksPerSec = -turnCommand;
+    targetRightTicksPerSec = turnCommand;
+
+    /*
+      If turning direction is inverted, swap signs:
+      targetLeftTicksPerSec = turnCommand;
+      targetRightTicksPerSec = -turnCommand;
+    */
+  }
+}
+
+// =====================================================
+//               ENCODER PI TO PWM CONTROL
+// =====================================================
+int computeMotorPWM(float targetSpeed, float actualSpeed, float &integral,
+                    int currentPWM, int minPWMVal) {
+  if (abs(targetSpeed) < 1.0) {
+    integral = 0.0;
+    return 0;
+  }
+
+  float error = targetSpeed - actualSpeed;
+  integral += error;
+  integral = constrain(integral, -speedIntegralLimit, speedIntegralLimit);
+
+  int pwmChange = KpSpeed * error + KiSpeed * integral;
+  int targetPWM = currentPWM + pwmChange;
+  int sign = targetSpeed > 0 ? 1 : -1;
+  int absPWM = constrain(abs(targetPWM), minPWMVal, maxPWM);
+
+  return sign * absPWM;
+}
+
+void updateMotorPWM() {
+  int newLeftPWM = computeMotorPWM(targetLeftTicksPerSec, leftSpeedTicksPerSec,
+                                   leftSpeedIntegral, leftPWM, 80);
+  int newRightPWM =
+      computeMotorPWM(targetRightTicksPerSec, rightSpeedTicksPerSec,
+                      rightSpeedIntegral, rightPWM, 88);
+
+  leftPWM = smoothPWM(leftPWM, newLeftPWM);
+  rightPWM = smoothPWM(rightPWM, newRightPWM);
+
+  leftPWM = constrain(leftPWM, -maxPWM, maxPWM);
+  rightPWM = constrain(rightPWM, -maxPWM, maxPWM);
+
+  setLeftMotor(leftPWM);
+  setRightMotor(rightPWM);
+}
+
+// =====================================================
+//                    OPTIONAL SERIAL COMMANDS
+// =====================================================
+// Used for interactive serial teleop during USB testing.
+// f = forward, b = backward, s = stop, r = right 90, l = left 90
+void handleSerialCommands() {
+  if (!Serial.available())
+    return;
+
+  char cmd = Serial.read();
+
+  Serial.print("Received Command: ");
+  Serial.println(cmd);
+
+  if (cmd == 'f') {
+    startDriveStraight(120);
+    autoDriveActive = false;
+  } else if (cmd == 'b') {
+    startDriveStraight(-120);
+    autoDriveActive = false;
+  } else if (cmd == 's') {
+    stopMotors();
+    autoDriveActive = false;
+    Serial.println("Robot stopped.");
+  } else if (cmd == 'r') {
+    startTurnRelative(-90);
+    autoDriveActive = false;
+  } else if (cmd == 'l') {
+    startTurnRelative(90);
+    autoDriveActive = false;
+  } else if (cmd == 'z') {
+    stopMotors();
+    autoDriveActive = false;
+    resetEncodersAndOdometry();
+    Serial.println("Odometry and yaw reset.");
+  } else if (cmd == 'e') {
+    IMU_YAW_SIGN *= -1;
+    Serial.print("IMU_YAW_SIGN: ");
+    Serial.println(IMU_YAW_SIGN);
+  }
+}
+
+// =====================================================
+//                    DEBUG PRINT
+// =====================================================
+void printStatus() {
+  long currentLeftTicks;
+  long currentRightTicks;
+
+  noInterrupts();
+  currentLeftTicks = leftTicks;
+  currentRightTicks = rightTicks;
+  interrupts();
+
+  Serial.print("Mode: ");
+  if (motionMode == STOPPED)
+    Serial.print("STOPPED");
+  if (motionMode == DRIVE_STRAIGHT)
+    Serial.print("DRIVE_STRAIGHT");
+  if (motionMode == TURN_TO_ANGLE)
+    Serial.print("TURN_TO_ANGLE");
+
+  Serial.print(" | LTicks: ");
+  Serial.print(currentLeftTicks);
+
+  Serial.print(" | RTicks: ");
+  Serial.print(currentRightTicks);
+
+  Serial.print(" | LSpeed: ");
+  Serial.print(leftSpeedTicksPerSec);
+
+  Serial.print(" | RSpeed: ");
+  Serial.print(rightSpeedTicksPerSec);
+
+  Serial.print(" | LTgt: ");
+  Serial.print(targetLeftTicksPerSec);
+
+  Serial.print(" | RTgt: ");
+  Serial.print(targetRightTicksPerSec);
+
+  Serial.print(" | LPWM: ");
+  Serial.print(leftPWM);
+
+  Serial.print(" | RPWM: ");
+  Serial.print(rightPWM);
+
+  Serial.print(" | Yaw: ");
+  Serial.print(yawAngle);
+
+  Serial.print(" | TargetYaw: ");
+  Serial.print(targetYaw);
+
+  Serial.print(" | YawErr: ");
+  Serial.print(angleError(targetYaw, yawAngle));
+
+  Serial.print(" | X(mm): ");
+  Serial.print(robotX);
+
+  Serial.print(" | Y(mm): ");
+  Serial.print(robotY);
+
+  Serial.print(" | V(mm/s): ");
+  Serial.print(linearVelocityMMs);
+
+  Serial.print(" | W(deg/s): ");
+  Serial.print(angularVelocityDegS);
+
+  Serial.print(" | IMUSign: ");
+  Serial.print(IMU_YAW_SIGN);
+
+  Serial.println();
+}
+
+// =====================================================
+//                       SETUP
+// =====================================================
+void setup() {
+  Serial.begin(115200);
+
+  pinMode(STATUS_LED, OUTPUT);
+  digitalWrite(STATUS_LED, LOW);
+
+  pinMode(ENA, OUTPUT);
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+
+  pinMode(ENB, OUTPUT);
+  pinMode(IN3, OUTPUT);
+  pinMode(IN4, OUTPUT);
+
+  pinMode(LEFT_ENC, INPUT_PULLUP);
+  pinMode(RIGHT_ENC, INPUT_PULLUP);
+
+  attachInterrupt(digitalPinToInterrupt(LEFT_ENC), leftEncoderISR, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(RIGHT_ENC), rightEncoderISR, CHANGE);
+
+  stopMotors();
+
+  Serial.println("Initializing robot firmware...");
+  Serial.println("Starting MPU raw register configuration...");
+
+  blinkStatusLED(3, 200);
+
+  setupMPU6050Raw();
+
+  if (!mpuReady) {
+    Serial.println("MPU not ready. System halted.");
+    showFatalErrorLED();
+  }
+
+  Serial.println("Hold robot stationary during gyro calibration.");
+  blinkStatusLED(5, 150);
+
+  calibrateGyroZ();
+
+  resetEncodersAndOdometry();
+
+  lastControlTime = millis();
+  lastIMUTime = millis();
+  lastPrintTime = millis();
+
+  Serial.println("System ready.");
+  Serial.println("Automatic drive test starting in 3 seconds...");
+
+  digitalWrite(STATUS_LED, HIGH);
+
+  delay(3000);
+
+  startDriveStraight(120);
+  autoDriveStartTime = millis();
+  autoDriveActive = true;
+}
+
+// =====================================================
+//                        LOOP
+// =====================================================
+void loop() {
+  handleSerialCommands();
+
+  updateIMU();
+
+  unsigned long now = millis();
+
+  if (now - lastControlTime >= controlInterval) {
+    float dt = (now - lastControlTime) / 1000.0;
+    lastControlTime = now;
+
+    updateEncoderSpeeds(dt);
+    updateMotionControl();
+    updateMotorPWM();
+  }
+
+  if (autoDriveActive && millis() - autoDriveStartTime >= autoDriveDuration) {
+    stopMotors();
+    autoDriveActive = false;
+    Serial.println("Automated test drive completed. Robot stopped.");
+  }
+
+  if (now - lastPrintTime >= 200) {
+    lastPrintTime = now;
+    printStatus();
+  }
+}
