@@ -1,6 +1,7 @@
 import cv2
 from ultralytics import YOLO
 import time
+import os
 
 def start_phone_detection():
     # 1. Load Model Weights
@@ -11,8 +12,8 @@ def start_phone_detection():
         print("WARNING: 'best.pt' not found. Falling back to default 'yolov8n.pt'...")
         model = YOLO('yolov8n.pt')
 
-    # 2. IP Webcam Stream Endpoint URL
-    url = 'http://192.168.1.100:8080/video'
+    # 2. IP Webcam Stream Endpoint URL (override with CAMERA_SOURCE env var)
+    url = os.environ.get('CAMERA_SOURCE', 'http://192.168.1.100:8080/video')
 
     # 3. Connect to IP Camera Stream
     cap = cv2.VideoCapture(url)

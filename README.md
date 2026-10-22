@@ -1,170 +1,148 @@
-# Autonomous Indoor SLAM & YOLO Vision System
+# Autonomous Indoor Mapping
 
-[![Python 3.9+](https://img.shields.io/badge/Python-3.9+-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
-[![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-EE4C2C?style=flat-square&logo=pytorch&logoColor=white)](https://pytorch.org/)
-[![YOLOv8](https://img.shields.io/badge/YOLO-v8.0-00FFFF?style=flat-square)](https://github.com/ultralytics/ultralytics)
-[![Flask](https://img.shields.io/badge/Flask-Web_Dashboard-000000?style=flat-square&logo=flask&logoColor=white)](https://flask.palletsprojects.com/)
-[![Arduino C++](https://img.shields.io/badge/Arduino-Firmware-00979D?style=flat-square&logo=arduino&logoColor=white)](https://www.arduino.cc/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
 
-An end-to-end robotics software stack integrating real-time 2D indoor mapping (SLAM), closed-loop wheel odometry with IMU sensor fusion, YOLOv8 object detection, NCNN edge optimization for embedded hardware (Raspberry Pi), and a Flask telemetry web dashboard.
+University robotics project: three related subsystems for an indoor mobile robot —
+a scripted 2D mapping simulation, Arduino closed-loop odometry firmware, and a
+YOLOv8 object-detection pipeline (training → NCNN export → edge inference → Flask
+telemetry dashboard). The subsystems share a repo but run independently; the
+README below describes what each one actually does, with its limits.
 
----
+## What is and is not in this repository
 
-## Description
+| Component | Location | Status |
+|---|---|---|
+| 2D mapping simulation | `indoor_mapping/live_slam_simulation.py` | Works on any machine with Python + Matplotlib. A simulated robot explores a hard-coded grid room with a ray-cast distance sensor and paints an occupancy grid. **Not a SLAM algorithm**: the robot pose is ground truth from the simulator, so there is no scan matching, loop closure, or pose estimation. |
+| Recorded-scan map replay | `indoor_mapping/legacy/` | Replay/plot tooling for scan logs captured during the course project (`replay_slam_from_log.py`, `create_scan_map.py`). Kept as archived code; entry points in `live_slam_simulation.py` / `show_final_map.py` are the maintained ones. |
+| Odometry firmware | `odometry_code/odometry_code.ino` | 834-line Arduino sketch: encoder tick odometry, PI speed control (`KpSpeed`/`KiSpeed`), MPU6050 gyro-Z heading hold (`KpHeading`), L298N motor driver. Requires the physical robot (Arduino + L298N + optical encoders + MPU6050) to test. |
+| YOLOv8 detection | `model/` | Fine-tuned YOLOv8n for 3 classes (`door`, `window`, `glass`), NCNN export for Raspberry Pi 3, inference scripts, Flask MJPEG dashboard. |
 
-This project provides an integrated perception and localization solution for mobile indoor robots. By fusing wheel encoder feedback with 6-DOF IMU heading corrections, the system tracks real-time odometry and constructs statistical occupancy grid maps of indoor environments. Additionally, custom-trained YOLOv8 object detection models enable real-time detection of structural features (doors, windows, glass barriers) with low-latency edge deployment via NCNN on embedded computers such as the Raspberry Pi 3.
+The mapping and vision pipelines were developed as one course deliverable but
+were never fused into a single autonomous loop on hardware; there is no runtime
+integration between the firmware and the Python side.
 
----
+## Trained model results (from the committed training log)
 
-## Features
+Numbers below are read from `model/runs/detect/train/results.csv`, which was
+committed together with the training run — they are reproducible by inspecting
+that file, not re-verified in a fresh run.
 
-- **Real-Time 2D Indoor SLAM**: Occupancy grid mapping with raycasting sensor simulation and dynamic point-cloud map rendering.
-- **Closed-Loop Robot Odometry**: Encoder tick counting combined with MPU6050 Gyro Z heading stabilization and PI speed control.
-- **YOLOv8 Object Detection**: Custom vision pipeline trained to identify doors, windows, and glass elements in real-time streams.
-- **Edge Hardware Acceleration**: Automated PyTorch (`.pt`) model conversion to FP16 NCNN format for high FPS execution on Raspberry Pi 3.
-- **IP Camera & Local Web Stream**: Support for local webcams, smartphone IP video endpoints (IP Webcam app), and Raspberry Pi camera modules.
-- **Flask Telemetry Dashboard**: Modern web interface displaying live video feed, detection log alerts, system metrics (FPS, CPU, RAM), and audio spectrum visualization.
+- Config: `yolov8n.pt` init, 50 epochs, batch 16, imgsz 640, CUDA device 0 (`model/runs/detect/train/args.yaml`)
+- Best mAP50 on validation: **0.592** (epoch 44)
+- Final epoch (50): P = 0.643, R = 0.562, mAP50 = 0.577, mAP50-95 = 0.383
 
----
+Validation sample and prediction panels from the actual run:
 
-## Technologies
+![Training curves](model/runs/detect/train/results.png)
+![Validation predictions](model/runs/detect/train/val_batch0_pred.jpg)
 
-- **Programming Languages**: Python 3.9+, C++ (Arduino)
-- **Computer Vision & ML**: OpenCV, Ultralytics YOLOv8, PyTorch, NCNN
-- **Mapping & Math**: NumPy, Matplotlib
-- **Web Framework**: Flask, HTML5, Vanilla CSS3, JavaScript (ES6)
-- **Hardware Integration**: Arduino Uno/Mega, MPU6050 IMU, Optical Wheel Encoders, Raspberry Pi 3
-
----
+**The dataset itself is not in this repository.** It was assembled from a
+Roboflow project (`window-and-door-detection`, see `model/master_data.yaml` and
+`model/legacy_files/download_data.py`), so retraining requires downloading your
+own copy of that dataset under `model/master_dataset/`. Exact retraining
+numbers are not guaranteed to match.
 
 ## Installation
 
-### Prerequisites
-- Python 3.9+
-- Arduino IDE (for uploading microcontroller firmware)
-- Git
-
-### 1. Clone Repository
-```bash
-git clone https://github.com/username/autonomous-indoor-mapping-yolo-slam.git
-cd autonomous-indoor-mapping-yolo-slam
-```
-
-### 2. Environment Setup
-Create a virtual environment and install the required dependencies:
+Prerequisites: Python 3.9+, Git. For the firmware: Arduino IDE.
 
 ```bash
-# Create virtual environment
+git clone https://github.com/ErtugrulAK/autonomous-indoor-mapping.git
+cd autonomous-indoor-mapping
+
 python -m venv .venv
 
-# Activate environment (Windows)
+# Activate (Windows cmd)
 .venv\Scripts\activate
-
-# Activate environment (Linux/macOS)
+# Activate (Windows PowerShell)
+.venv\Scripts\Activate.ps1
+# Activate (Linux / macOS)
 source .venv/bin/activate
 
-# Install dependencies
 pip install -r requirements.txt
 ```
 
----
+`requirements.txt` pulls PyTorch + Ultralytics + OpenCV (~2 GB with CUDA
+wheels). If you only want the mapping simulation, `pip install numpy matplotlib`
+is enough.
 
 ## Usage
 
-### 1. Microcontroller Firmware Setup
-1. Open `odometry_code/odometry_code.ino` in Arduino IDE.
-2. Select target board and COM port.
-3. Upload sketch to the robot microcontroller.
+Run the Python entry points from the **repository root** unless stated
+otherwise.
 
-### 2. Run Live SLAM Simulation
-Simulate 2D room exploration and real-time mapping:
 ```bash
+# Simulated room exploration + live occupancy grid (Matplotlib window)
 python indoor_mapping/live_slam_simulation.py
+
+# Plot the recorded arena point cloud (reads arena_data.txt from cwd,
+# so run from inside indoor_mapping/)
+cd indoor_mapping && python show_final_map.py && cd ..
 ```
 
-### 3. Display Saved Occupancy Map
-Visualize final mapped boundaries from recorded scan logs:
+Vision scripts resolve model weights against the **current working directory**
+(`best.pt`, `best_ncnn_model`), so run them from inside `model/`:
+
 ```bash
-python indoor_mapping/show_final_map.py
+cd model
+
+python detect.py          # webcam (device 0) inference with best.pt
+python detect_phone.py    # phone as IP webcam (default: http://192.168.1.100:8080/video)
+python export_pi.py       # re-export best.pt -> NCNN (imgsz 320, FP16)
+python detect_pi.py       # NCNN-optimised inference, intended for Raspberry Pi
 ```
 
-### 4. Run YOLO Object Detection
+Flask telemetry dashboard (live MJPEG feed, `/detections` JSON, CPU/RAM/FPS
+panels):
 
-**Local Webcam:**
 ```bash
-python model/detect.py
+python model/web_dashboard/app.py     # then open http://localhost:5000
 ```
 
-**IP Smartphone Camera:**
-```bash
-python model/detect_phone.py
-```
+Firmware: open `odometry_code/odometry_code.ino` in the Arduino IDE, select the
+board and COM port, upload. Pin map is at the top of the sketch (ENA/ENB PWM,
+IN1-IN4 direction, encoders on INT0/INT1, MPU6050 on I2C address 0x68).
 
-**Raspberry Pi (NCNN Optimized):**
-```bash
-# 1. Export weights to NCNN format
-python model/export_pi.py
+### Environment variables
 
-# 2. Run detection on Pi
-python model/detect_pi.py
-```
+The camera/dashboard scripts read plain environment variables (exported in your
+shell — they are **not** auto-loaded from `.env`; see `.env.example`):
 
-### 5. Launch Telemetry Web Dashboard
-```bash
-python model/web_dashboard/app.py
-```
-Open `http://localhost:5000` in your web browser.
+| Variable | Default | Used by |
+|---|---|---|
+| `CAMERA_SOURCE` | `http://192.168.1.100:8080/video` | `detect_phone.py`, `detect_pi.py`, `web_dashboard/app.py` |
+| `NCNN_MODEL_PATH` | `best_ncnn_model` | `detect_pi.py` |
+| `MODEL_PATH` | `model/best_ncnn_model` else `model/best.pt` | `web_dashboard/app.py` |
+| `FLASK_HOST` / `FLASK_PORT` / `FLASK_DEBUG` | `0.0.0.0` / `5000` / `False` | `web_dashboard/app.py` |
+| `ROBOFLOW_API_KEY` | – (required) | `legacy_files/download_data.py` |
 
----
+`FLASK_HOST=0.0.0.0` exposes the dashboard to your LAN. The app has no
+authentication; keep it on a trusted network or set `FLASK_HOST=127.0.0.1`.
 
-## Project Structure
+## Reproducing the detection pipeline
 
-```
-autonomous-indoor-mapping-yolo-slam/
-├── .env.example                      # Template environment configuration
-├── .gitignore                        # Git exclusion rules
-├── LICENSE                           # MIT License
-├── README.md                         # Project documentation
-├── requirements.txt                  # Python dependencies
-├── indoor_mapping/                   # SLAM and mapping module
-│   ├── arena_data.txt                # Sample spatial point-cloud data
-│   ├── live_slam_simulation.py       # Interactive 2D SLAM simulation
-│   ├── sample_sensor_data.txt        # Sample sensor measurement log
-│   ├── show_final_map.py             # Occupancy map plotting script
-│   └── legacy/                       # Archive mapping and motor routines
-├── model/                            # YOLO Object Detection module
-│   ├── best.pt                       # Trained PyTorch model weights
-│   ├── detect.py                     # Local webcam inference script
-│   ├── detect_phone.py               # IP camera inference script
-│   ├── detect_pi.py                  # Raspberry Pi optimized inference script
-│   ├── export_pi.py                  # NCNN conversion utility
-│   ├── master_data.yaml              # Dataset configuration YAML
-│   ├── setup_cpu.bat                 # Windows CPU setup helper
-│   ├── setup_gpu.bat                 # Windows GPU setup helper
-│   ├── start_training.bat            # Training launcher script
-│   ├── train.py                      # YOLOv8 model training script
-│   ├── yolov8n.pt                    # YOLOv8 nano pre-trained weights
-│   ├── legacy_files/                 # Jupyter notebook and training history
-│   └── web_dashboard/                # Flask web dashboard
-│       ├── app.py                    # Flask server application
-│       ├── static/                   # CSS and JavaScript assets
-│       └── templates/                # HTML dashboard templates
-└── odometry_code/                    # Microcontroller firmware
-    └── odometry_code.ino             # Closed-loop motor control and IMU odometry
-```
+1. `cd model`
+2. Export your own Roboflow API key and run `python legacy_files/download_data.py`
+   (dataset downloads to `master_dataset/` as expected by `master_data.yaml`).
+3. `python train.py` (needs a CUDA GPU; on CPU edit `device='0'` to `device='cpu'` — see `setup_cpu.bat`).
+4. Copy `runs/detect/train/weights/best.pt` to `model/best.pt`.
+5. Optional NCNN export: `python export_pi.py`.
 
----
+## Limitations & repo notes
 
-## Future Improvements
+- Mapping is a simulation over a hard-coded world; no LiDAR/depth sensor input path exists in the maintained scripts.
+- No automated tests and no CI. Verification was manual on the course hardware.
+- The repo intentionally tracks the trained weights (`best.pt`, `yolov8n.pt`, `best_ncnn_model/`, ~30 MB of blobs) so inference works out of the box; the full training run outputs under `model/runs/` (plots + `last.pt`) are also committed. If you clone just to use the code, consider a shallow clone (`git clone --depth 1`).
+- `model/legacy_files/2022510022_2021510001_progress_report.pdf` is the university progress report and contains student IDs; remove it if that is undesirable for your context.
+- A Roboflow API key that was hard-coded in `model/legacy_files/download_data.py` in the git history has been replaced with an environment variable. The old key was public in history — it should be rotated/deleted in Roboflow.
 
-- [ ] **ROS2 Integration**: Wrap odometry and sensor data into ROS2 nodes (`nav2` stack compatibility).
-- [ ] **Extended Kalman Filter (EKF)**: Fuse IMU, wheel encoder ticks, and visual odometry.
-- [ ] **Depth Vision**: Incorporate RGB-D camera point clouds for 3D mapping.
-- [ ] **WebSockets Integration**: Replace HTTP polling in Flask web dashboard with Socket.IO streams.
+## Future work (not done)
 
----
+- Replace the scripted simulation with real scan matching (e.g. cartographer or a hand-rolled particle filter).
+- ROS 2 topics + `nav2` compatibility for the odometry firmware.
+- EKF fusion of encoders, IMU and visual odometry.
+- WebSocket streaming instead of HTTP polling in the dashboard.
 
 ## License
 
-Distributed under the MIT License. See [LICENSE](LICENSE) for details.
+MIT — see [LICENSE](LICENSE).

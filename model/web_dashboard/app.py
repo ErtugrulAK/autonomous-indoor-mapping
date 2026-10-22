@@ -12,14 +12,20 @@ latest_detections = []
 detection_lock = threading.Lock()
 
 # Model and Camera Configuration
-MODEL_PATH = '../best_ncnn_model'
-if not os.path.exists(MODEL_PATH):
-    MODEL_PATH = '../best.pt'
+# Paths below resolve against the repository layout, not the current
+# working directory, so the server can be started from anywhere.
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_DIR = os.path.dirname(BASE_DIR)  # the repository's model/ directory
+MODEL_PATH = os.environ.get('MODEL_PATH')
+if not MODEL_PATH:
+    MODEL_PATH = os.path.join(MODEL_DIR, 'best_ncnn_model')
+    if not os.path.exists(MODEL_PATH):
+        MODEL_PATH = os.path.join(MODEL_DIR, 'best.pt')
 
-# IP Camera URL (From detect_pi.py)
-# url = 'http://192.168.1.100:8080/video' 
-# For local testing, we can use 0 for webcam or a video file
-CAMERA_SOURCE = 'http://192.168.1.100:8080/video' 
+# IP camera stream endpoint; override with CAMERA_SOURCE ('0' = default webcam).
+CAMERA_SOURCE = os.environ.get('CAMERA_SOURCE', 'http://192.168.1.100:8080/video')
+if CAMERA_SOURCE.isdigit():
+    CAMERA_SOURCE = int(CAMERA_SOURCE)
 
 # Load Model
 try:
@@ -84,6 +90,8 @@ def get_detections():
         return jsonify(latest_detections)
 
 if __name__ == '__main__':
-    # Run server
     # host='0.0.0.0' allows access from other devices in the network
-    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
+    host = os.environ.get('FLASK_HOST', '0.0.0.0')
+    port = int(os.environ.get('FLASK_PORT', '5000'))
+    debug = os.environ.get('FLASK_DEBUG', 'False').lower() in ('1', 'true', 'yes')
+    app.run(host=host, port=port, debug=debug, threaded=True)
