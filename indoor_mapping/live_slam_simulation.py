@@ -141,14 +141,16 @@ if __name__ == "__main__":
             
             # Efficient plot data update
             map_plot.set_data(map_points_x, map_points_y)
-            robot_plot.set_data(robot.x, robot.y)
+            robot_plot.set_data([robot.x], [robot.y])
             
             plt.pause(0.001)
 
-    except plt.TclError:
-        print("Simulation GUI window closed.")
     except KeyboardInterrupt:
         print("Simulation interrupted by user.")
+    except Exception as error:
+        # GUI backends raise assorted errors when the window is closed
+        # (TclError, RuntimeError, ...); print and exit cleanly.
+        print(f"Simulation stopped: {type(error).__name__}: {error}")
     finally:
         plt.ioff()
         print("Simulation complete.")

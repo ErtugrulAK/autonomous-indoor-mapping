@@ -6,7 +6,7 @@ import os
 def start_pi_detection():
     # 1. Model Format Selection
     # NCNN format delivers optimal inference speeds on Raspberry Pi devices.
-    model_path = 'best_ncnn_model' 
+    model_path = os.environ.get('NCNN_MODEL_PATH', 'best_ncnn_model')
     
     if not os.path.exists(model_path):
         print(f"WARNING: '{model_path}' not found! Falling back to PyTorch model...")
@@ -20,8 +20,8 @@ def start_pi_detection():
         print(f"ERROR: Model initialization failed: {e}")
         return
 
-    # 2. Camera Configuration (IP Webcam Endpoint)
-    url = 'http://192.168.1.100:8080/video' 
+    # 2. Camera Configuration (IP Webcam Endpoint; override with CAMERA_SOURCE)
+    url = os.environ.get('CAMERA_SOURCE', 'http://192.168.1.100:8080/video')
     cap = cv2.VideoCapture(url)
 
     if not cap.isOpened():
