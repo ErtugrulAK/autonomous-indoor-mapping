@@ -8,6 +8,17 @@ YOLOv8 object-detection pipeline (training → NCNN export → edge inference �
 telemetry dashboard). The subsystems share a repo but run independently; the
 README below describes what each one actually does, with its limits.
 
+
+## Visual evidence
+
+![Simulated mapping](docs/screenshots/aim_simulated_map.png)
+*Simulated mapping run (4000 steps of `indoor_mapping/live_slam_simulation.py`
+rendered headless): the wall point cloud built by raycast scans and the robot's
+coverage trajectory. Simulated — there is no physical robot or LiDAR in this repo.*
+
+Detection assets are training outputs committed by the original runs and are
+shown further down (loss curves, validation predictions, confusion matrix).
+
 ## What is and is not in this repository
 
 | Component | Location | Status |
